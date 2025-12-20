@@ -17,8 +17,6 @@ def cargarImagenes():
             (SQ_SIZE, SQ_SIZE)
         )
 #Ahora se puede acceder a una imagen usando Imagenes['wP'] por ejemplo
-
-
 """
 El main se encargará de manejar los inputs del usuario y la salida grafica
 """
@@ -86,8 +84,8 @@ dibujarGameState: Encargada de dibujar el estado actual del juego
 """
 def dibujarGameState(screen, gs, sqSelected, movesFromSelected):
     dibujarTablero(screen) #Dibujar las casillas del tablero
-    dibujarMovimientosPosibles(screen, movesFromSelected) #Luces guia
     dibujarPiezas(screen, gs.board) #Dibujar las piezas sobre las casillas
+    dibujarMovimientosPosibles(screen, movesFromSelected) #Luces guia
 
 
 """
