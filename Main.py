@@ -25,6 +25,8 @@ def main():
     clock = p.time.Clock()
     screen.fill(p.Color("white"))
     gs = Engine.GameState() #Crear el estado inicial del juego por medio de Engine.py
+    validMoves = gs.getValidMoves() #Obtener los movimientos validos
+    moveMade = False #Variable para saber si se hizo un movimiento para asi solo verificar movimientos posibles y validos una vez se haga un movimiento
     cargarImagenes() #Cargar las imagenes de las piezas
     correr = True
     sqSelected = () #Tupla (fila, columna) de la casilla seleccionada, inicialmente vacia
@@ -33,6 +35,7 @@ def main():
         for evento in p.event.get():
             if evento.type == p.QUIT:
                 correr = False
+            # Manejar clicks del mouse
             elif evento.type == p.MOUSEBUTTONDOWN:
                 ubicacion = p.mouse.get_pos() #Posicion del mouse en (x,y)
                 columna = ubicacion[0] // SQ_SIZE
@@ -47,9 +50,16 @@ def main():
                 if len(playerClicks) == 2: #Luego de dos clicks
                     move = Engine.Move(playerClicks[0], playerClicks[1], gs.board)
                     print(move.getChessNotation())
-                    gs.makeMove(move)
-                    sqSelected = () #Resetear seleccion
-                    playerClicks = [] #Resetear lista de clicks
+                    if move in validMoves: #Si el movimiento es valido
+                        gs.makeMove(move)
+                        moveMade = True #Se hizo un movimiento
+                        sqSelected = () #Resetear seleccion
+                        playerClicks = [] #Resetear lista de clicks
+                    else:
+                        playerClicks = [sqSelected] #Mantener solo el ultimo click (si el primer click fue invalido) 
+        if moveMade:
+            validMoves = gs.getValidMoves() #Actualizar los movimientos validos
+            moveMade = False
         dibujarGameState(screen, gs)
         p.display.flip()  #Actualizar la pantalla
         clock.tick(15) #15 fps  
@@ -72,7 +82,8 @@ def dibujarTablero(screen):
             p.draw.rect(screen, color, p.Rect(c*SQ_SIZE, r*SQ_SIZE, SQ_SIZE, SQ_SIZE)) #Dibuja un rectangulo en la posicion dada
 
 """
-Dibuja las piezas en el tablero usando el estado del juego"""
+Dibuja las piezas en el tablero usando el estado del juego
+"""
 def dibujarPiezas(screen, board):
     for r in range(DIMENSION):
         for c in range(DIMENSION):
