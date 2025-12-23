@@ -111,10 +111,11 @@ def dibujarPiezas(screen, board):
 
 
 """
-Dibuja puntos amarillos en las casillas a las que la pieza seleccionada puede moverse
+Dibuja puntos verdes en las casillas a las que la pieza seleccionada puede moverse
 """
+
 def dibujarMovimientosPosibles(screen, moves):
-    color = p.Color("yellow")
+    color = p.Color("green")
     radio = SQ_SIZE // 6
     for move in moves:
         centro_x = move.endCol * SQ_SIZE + SQ_SIZE // 2
@@ -125,3 +126,4 @@ def dibujarMovimientosPosibles(screen, moves):
 #Por recomendacion de Python para poder importar el main sin ejecutar este .py si fuera necesario
 if __name__ == "__main__":
     main()
+
