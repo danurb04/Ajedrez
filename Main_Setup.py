@@ -160,6 +160,8 @@ def main():
     correr = True
     sqSelected = () #Tupla (fila, columna) de la casilla seleccionada, inicialmente vacia
     playerClicks = [] #Lista de tuplas [(fila1, columna1), (fila2, columna2)] para registrar los clicks del jugador para movimiento
+    errorMessage = "" #mensaje para cuando hay movimiento inválido
+    errorFrames = 0 #cantidad de frames que sale el mensaje
 
 
     while correr:
@@ -247,6 +249,10 @@ def main():
                             sqSelected = () #Resetear seleccion
                             playerClicks = [] #Resetear lista de clicks
                         else:
+                            if move in movesInvalidFromSelected: #si hubo jugada inválida poner el texto y el tiempo que va a estar el mensaje de error.
+                                errorMessage = "Jugada inválida"
+                                errorFrames = 22.5 # 1.5 segundos, porque se definio que el programa corre a 15 fps
+
                             playerClicks = [sqSelected] #Mantener solo el ultimo click
 
 
@@ -266,15 +272,29 @@ def main():
                 moveMade = False
 
             # === Movimientos posibles de la pieza seleccionada (luces guia) ===
-            movesFromSelected = []
+            movesValidFromSelected = [] #lista con movimientos posibles (verdes+amarillos)
+            movesInvalidFromSelected = [] #lista con movimientos ilegales (rojos)
+            
             if sqSelected != ():
                 r, c = sqSelected
                 if gs.board[r][c] != "--":
                     color = gs.board[r][c][0]
                     if (color == 'w' and gs.whiteToMove) or (color == 'b' and not gs.whiteToMove):
-                        movesFromSelected = [m for m in validMoves if m.startRow == r and m.startCol == c]
 
-            dibujarGameState(screen, gs, sqSelected, movesFromSelected)
+                        movesValidFromSelected = [m for m in validMoves if m.startRow == r and m.startCol == c] #Movimientos válidos (lo que ya estaba antes: verdes+amarillos)
+
+                        allMoves = gs.getAllPossibleMoves()
+                        movesAllFromSelected = [m for m in allMoves if m.startRow == r and m.startCol == c] #todos los movimientos posibles de la pieza sin considerar jaque (para poder definir rojos)
+
+                        movesInvalidFromSelected = [m for m in movesAllFromSelected if m not in movesValidFromSelected] #movimientos inválidos de pieza: todos movimientos válidos - movimientos válidos (rojo)
+
+            dibujarGameState(screen, gs, sqSelected, movesValidFromSelected, movesInvalidFromSelected)
+
+            if errorFrames > 0: #si se generó jugada inválida,  mostrar el mensaje de error
+                p.draw.rect(screen, p.Color("white"), p.Rect(WIDTH//2 - 120, HEIGHT//2 - 40, 240, 80))
+                p.draw.rect(screen, p.Color("gray"),  p.Rect(WIDTH//2 - 120, HEIGHT//2 - 40, 240, 80), 2)
+                draw_text(screen, errorMessage, (WIDTH // 2, HEIGHT // 2), font_btn, p.Color("red"))
+                errorFrames -= 1
 
         p.display.flip()  #Actualizar la pantalla
         clock.tick(15) #15 fps
@@ -283,10 +303,10 @@ def main():
 """
 dibujarGameState: Encargada de dibujar el estado actual del juego
 """
-def dibujarGameState(screen, gs, sqSelected, movesFromSelected):
+def dibujarGameState(screen, gs, sqSelected, movesValidFromSelected, movesInvalidFromSelected):
     dibujarTablero(screen) #Dibujar las casillas del tablero
     dibujarPiezas(screen, gs.board) #Dibujar las piezas sobre las casillas
-    dibujarMovimientosPosibles(screen, movesFromSelected) #Luces guia
+    dibujarMovimientosPosibles(screen, movesValidFromSelected, movesInvalidFromSelected) #Luces guia
 
 
 """
@@ -312,13 +332,24 @@ def dibujarPiezas(screen, board):
 
 
 """
-Dibuja puntos verdes en las casillas a las que la pieza seleccionada puede moverse
+Dibuja puntos verdes en las casillas a las que la pieza seleccionada puede moverse y puntos verdes si puede comer alguna pieza
 """
 
-def dibujarMovimientosPosibles(screen, moves):
-    color = p.Color("green")
+def dibujarMovimientosPosibles(screen, movesValid, movesInvalid): #se agregó movesValid y movesInvalid en vez de solo moves
     radio = SQ_SIZE // 6
-    for move in moves:
+
+    # para dibujar los movimientos inválidos de las piezas (rojo)
+    for move in movesInvalid:
+        centro_x = move.endCol * SQ_SIZE + SQ_SIZE // 2
+        centro_y = move.endRow * SQ_SIZE + SQ_SIZE // 2
+        p.draw.circle(screen, p.Color("red"), (centro_x, centro_y), radio)
+
+    for move in movesValid:
+        if move.pieceCaptured != "--": 
+            color = p.Color("yellow") #si el movimiento genera captura de pieza, color amarillo
+        else:
+            color = p.Color("green") #si el movimiento es en "--" color verde (movimiento posible)
+
         centro_x = move.endCol * SQ_SIZE + SQ_SIZE // 2
         centro_y = move.endRow * SQ_SIZE + SQ_SIZE // 2
         p.draw.circle(screen, color, (centro_x, centro_y), radio)
