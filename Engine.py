@@ -234,6 +234,48 @@ class GameState():
                 if casillaDestino == "--" or casillaDestino[0] == enemigoColor:
                     moves.append(Move((r, c), (filaDestino, colDestino), self.board))
         return
+    
+
+    '''
+    Esta función busca la posición de los reyes en un tablero cargado y la actualiza para mantener la funcionalidad correcta del jaque
+    Se asume que todos los .json incluyen exactamente 2 reyes, uno blanco y uno negro, pero en caso de faltar a uno se asigna en la posición predeterminada respectivamente.
+    '''
+    
+    def find_Kings(self):
+
+        wk = None
+        bk = None
+        for r in range(8):
+            for c in range(8):
+                if self.board[r][c] == "wK":
+                    wk = (r, c)
+                elif self.board[r][c] == "bK":
+                    bk = (r, c)
+
+        # en script fen_to_json se contemplan todos los escenarios para los reyes para evitar que se cargue un tablero con cantidades ilegales de reyes, pero en caso de falta de alguno, se ponen predeterminados
+        self.whiteKingLocation = wk if wk is not None else (7, 4)
+        self.blackKingLocation = bk if bk is not None else (0, 4)
+
+
+    '''
+    Carga el tablero nuevo con los datos extraídos del .json, actualizando las variables de board y el jugador con el turno siguiente
+    Resetea el resto de valores para asegurar juego nuevo desde esta posición
+    Utiliza función find_kings para mantener funcionalidad de jaques con posiciones cargadas de los reyes.
+    '''
+
+    def load_position(self, board, whiteToMove=True):
+        
+        #datos del .json
+        self.board = board
+        self.whiteToMove = whiteToMove 
+
+        self.moveLog = []
+        self.checkMate = False
+        self.staleMate = False
+
+        # Actualizar reyes (para jaques)
+        self.find_Kings()
+
 
 
 class Move():

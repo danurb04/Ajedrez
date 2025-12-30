@@ -2,6 +2,15 @@
 
 import pygame as p
 import Engine
+import json
+import os
+
+#abrir json en Windows
+import tkinter as tk
+from tkinter import filedialog
+
+#abrir json en Rasp
+#import subprocess 
 
 WIDTH = HEIGHT = 600 #Tamaño de la ventana, se hizo más grande para que entre título
 DIMENSION = 8  #Dimension del tablero de ajedrez
@@ -131,6 +140,60 @@ def draw_setup(screen, buttons, mouse_pos, font_title, font_btn, modo_selecciona
 
 
 
+"""
+Esta función abre el explorador de archivos y devuelve el path del .json seleccionado.
+Importante: para windows y para linux se trabaja diferente lo del explorador de archivos, por lo que se ponen ambas versiones
+Quitar de comentarios uno u otro dependiendo de si se corre el código en la raspberry o de forma local en computadora windows
+Recordar también quitar o poner en comentarios los imports correspondientes
+ """
+
+
+def pick_json_file():
+    
+    #Quitar de comentarios esta sección si se va a usar código en rasp
+
+    '''
+    start_dir = os.path.join(os.getcwd(),"posiciones") #carpeta donde están los .json
+    
+    try:  #datos que salen en la ventana del explorador 
+        result = subprocess.run(
+        [
+            "zenity",
+            "--file-selection",
+            "--title=Seleccionar tablero (.json)",
+            f"--filename={start_dir}/",
+            "--file-filter=JSON files | *.json",
+            
+        ],
+        capture_output = True,
+        text = True
+        )
+        
+        if result.returncode != 0:
+            return None # cancelado
+            
+        file_path = result.stdout.strip()
+        return file_path if file_path else None #si encuentra un archivo para abrir lo abre y si no tira error
+        
+    finally:
+        #reenfocar eventos (mouse y teclado) en pygame
+        p.event.pump()
+    
+    '''
+
+    root = tk.Tk()
+    root.withdraw()  # oculta la ventana principal de tkinter
+    root.attributes("-topmost", True)  # trae el dialog al frente
+
+    file_path = filedialog.askopenfilename(
+        title="Seleccionar tablero (.json)", #mensaje de arriba
+        filetypes=[("JSON files", "*.json")], #tipo de archivos que muestra
+        initialdir=os.path.join(os.getcwd(), "posiciones") #carpeta en la que busca (carpeta donde fen_to_json manda los archivos)
+    )
+
+    root.destroy()
+    return file_path if file_path else None #si encuentra archivo disponible seleccionado lo abre, si no da error
+
 
 """
 El main se encargará de manejar los inputs del usuario y la salida grafica
@@ -219,8 +282,33 @@ def main():
                                 playerClicks = []
                                 state = STATE_GAME
 
-                            elif b["action"] == "LOAD_POS": #no hace nada pero eventualmente se le pone una lista con el tablero inicial o algo 
-                                pass
+                            elif b["action"] == "LOAD_POS": #permite abrir el explorador de archivos y cargar un .json que incluye las variables iniciales de un tablero preestablecido
+                                    file_path = pick_json_file() #llama a la función que abre el explorador de archivos y permite escoger el .json
+
+                                    if file_path is None:
+                                        # usuario canceló y no seleccionó nada
+                                        errorMessage = "No se seleccionó archivo"
+                                        errorFrames = 30
+                                    else:
+                                        try:
+                                            with open(file_path, "r", encoding="utf-8") as f: #abre archivo
+                                                data = json.load(f) 
+
+                                            board = data["board"] #dato de posiciones de las piezas (lista de listas al inicio del Engine)
+                                            whiteToMove = data.get("whiteToMove", True) #dato de quien sigue moviendo (blanco o negro)
+
+                                            gs.load_position(board, whiteToMove) #carga la posicion actual con esos datos
+
+                                            validMoves = gs.getValidMoves() #empieza la partida a partir de este punto
+                                            moveMade = False
+                                            sqSelected = ()
+                                            playerClicks = []
+
+                                            state = STATE_GAME
+
+                                        except Exception:
+                                            errorMessage = "Error cargando archivo"
+                                            errorFrames = 30
 
 
 
@@ -264,6 +352,11 @@ def main():
 
         elif state == STATE_SETUP:
             draw_setup(screen, setup_buttons, mouse_pos, font_title, font_btn, mode)
+            if errorFrames > 0: #si hay error cargando el .json, muestra el mensaje de error respectivo (el usuario no seleccionó nada, error al cargar, o cualquier otro.)
+                p.draw.rect(screen, p.Color("white"), p.Rect(WIDTH//2 - 120, HEIGHT//2 - 40, 240, 80))
+                p.draw.rect(screen, p.Color("gray"),  p.Rect(WIDTH//2 - 120, HEIGHT//2 - 40, 240, 80), 2)
+                draw_text(screen, errorMessage, (WIDTH // 2, HEIGHT // 2), font_btn, p.Color("red"))
+                errorFrames -= 1
 
         elif state == STATE_GAME:
 
@@ -290,7 +383,7 @@ def main():
 
             dibujarGameState(screen, gs, sqSelected, movesValidFromSelected, movesInvalidFromSelected)
 
-            if errorFrames > 0: #si se generó jugada inválida,  mostrar el mensaje de error
+            if errorFrames > 0: #si se generó jugada inválida,  mostrar el mensaje de error (ahora error en setup)
                 p.draw.rect(screen, p.Color("white"), p.Rect(WIDTH//2 - 120, HEIGHT//2 - 40, 240, 80))
                 p.draw.rect(screen, p.Color("gray"),  p.Rect(WIDTH//2 - 120, HEIGHT//2 - 40, 240, 80), 2)
                 draw_text(screen, errorMessage, (WIDTH // 2, HEIGHT // 2), font_btn, p.Color("red"))
