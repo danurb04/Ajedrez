@@ -1,4 +1,4 @@
-#Estado e informacion del juego, asi como reglas y logica de movimiento, ademas de un historial
+# Estado e informacion del juego, asi como reglas y logica de movimiento, ademas de un historial
 class GameState():
     def __init__(self):
         #Tablero 8x8 representado como una lista de listas
@@ -16,6 +16,14 @@ class GameState():
         ]
         self.whiteToMove = True
         self.moveLog = []
+
+        # Rastrear posición de los reyes, para verficar jaques
+        self.whiteKingLocation = (7, 4)
+        self.blackKingLocation = (0, 4)
+
+        self.checkMate = False
+        self.staleMate = False
+
     """
     Hacer un movimiento (no valida si es legal)
     """
@@ -24,17 +32,77 @@ class GameState():
         self.board[move.endRow][move.endCol] = move.pieceMoved #Colocar la pieza en la casilla destino
         self.moveLog.append(move) #Agregar el movimiento al historial
         self.whiteToMove = not self.whiteToMove #Cambiar el turno
-    
+
+        # Actualizar posición de los reyes:
+        if move.pieceMoved == 'wK':
+            self.whiteKingLocation= (move.endRow, move.endCol)
+        elif move.pieceMoved == 'bK':
+            self.blackKingLocation = (move.endRow, move.endCol)
+         
+
+    def undoMove(self):
+        if len(self.moveLog) != 0:  
+            move = self.moveLog.pop()
+            self.board[move.startRow][move.startCol] = move.pieceMoved
+            self.board[move.endRow][move.endCol] = move.pieceCaptured
+            self.whiteToMove = not self.whiteToMove
+            # Actualiza posición del rey
+            if move.pieceMoved == "wK":
+                self.whiteKingLocation = (move.startRow, move.startCol)
+            elif move.pieceMoved == "bK":
+                self.blackKingLocation = (move.startRow, move.startCol)
     """
-    Obtener todos los movimientos validos considerando jaques: POR EL MOMENTO SOLO DEVUELVE TODOS LOS MOVIMIENTOS POSIBLES, NO LOS VALIDA POR MOTIVOS DE TESTEO"""
-    def getValidMoves(self):
-        #Solo devolver todos los movimientos posibles (sin considerar jaques)
-        return self.getAllPossibleMoves()
+    Obtener todos los movimientos validos considerando jaques:
+    """
+    def getValidMoves(self): # Devuelve solo los movimientos posibles (contemplando pins)
+        moves = self.getAllPossibleMoves()
+
+        for i in range(len(moves)-1, -1, -1): 
+            self.makeMove(moves[i])
+            # Por recomendación, se recorre la lista desde el final,
+            # para evitar que al borrar elementos, el programa se brinque los repetidos
+
+            self.whiteToMove = not self.whiteToMove
+            if self.inCheck():
+                moves.remove(moves[i])
+            self.whiteToMove = not self.whiteToMove
+            self.undoMove()  
+        if len(moves) == 0: #no hay movimientos, es mate o empate
+            if self.inCheck():
+                self.checkMate = True
+            else:
+                self.checkMate = True
+        else:
+            self.checkMate = False
+            self.staleMate = False
+        return moves
+    
+    '''
+    Revisa si el enemigo puede atacar ese espacio
+    '''
+    def squareUnderAttack(self, r, c):
+        self.whiteToMove = not self.whiteToMove # Cambiar turno
+        oppMoves = self.getAllPossibleMoves()
+        self.whiteToMove = not self.whiteToMove # Cambiar turno de nuevo
+        for move in oppMoves:
+            if move.endRow == r and move.endCol == c:
+                return True
+        return False
+
+    '''
+    Revisa si el jugador actual está en jaque
+    '''
+    def inCheck(self):
+        if self.whiteToMove:
+            return self.squareUnderAttack(self.whiteKingLocation[0], self.whiteKingLocation[1])
+        else:
+            return self.squareUnderAttack(self.blackKingLocation[0], self.blackKingLocation[1])
+
     """
     Obtener todos los movimientos posibles sin considerar jaques
     """
     def getAllPossibleMoves(self):
-        moves = [Move((6,4),(4,4), self.board)] #Movimiento de prueba peon blanco
+        moves = []
         for r in range(len(self.board)): #Recorrer filas
             for c in range(len(self.board[r])): #Recorrer columnas
                 turno = self.board[r][c][0] #Primer caracter representa el color de la pieza
@@ -53,6 +121,7 @@ class GameState():
                     elif pieza == 'K':
                         self.getKingMoves(r, c, moves)
         return moves
+
     """
     Obtener todos los movimientos de peon en la posicion (r, c)
     """
@@ -82,6 +151,7 @@ class GameState():
                 if self.board[r+1][c+1][0] == 'w': #Pieza blanca para capturar
                     moves.append(Move((r, c), (r+1, c+1), self.board))
         return
+
     """
     Obtener todos los movimientos de torre en la posicion (r, c)
     """
@@ -95,53 +165,54 @@ class GameState():
                 if 0 <= filaDestino < 8 and 0 <= colDestino <8: #Dentro del tablero
                     casillaDestino = self.board[filaDestino][colDestino] #Contenido de la casilla destino?
                     if casillaDestino == "--": #Casilla vacia
-                        moves.append(Move((r, c), (filaDestino, colDestino), self.board)) #Agregar movimiento a movimientos posibles
+                        moves.append(Move((r, c), (filaDestino, colDestino), self.board))
                     elif casillaDestino[0] == enemigoColor: #Casilla con pieza enemiga
-                        moves.append(Move((r, c), (filaDestino, colDestino), self.board)) #Agregar movimiento a movimientos posibles
+                        moves.append(Move((r, c), (filaDestino, colDestino), self.board))
                         break #No puede saltar sobre piezas
                     else: #Casilla con pieza propia
                         break
                 else: #Fuera del tablero
                     break
         return
+
     """
     Obtener todos los movimientos de caballo en la posicion (r, c)
     """
     def getKnightMoves(self, r, c, moves):
         direcciones = [(-2, -1), (-2, 1), (-1, -2), (-1, 2), (1, -2), (1, 2), (2, -1), (2, 1)] #Movimientos de caballo en L
         enemigoColor = "b" if self.whiteToMove else "w" #Color del enemigo
-        for d in direcciones: #Iterar sobre todas las direcciones posibles
-            filaDestino = r + d[0] #Fila destino
-            colDestino = c + d[1] #Columna destino
-            if 0 <= filaDestino < 8 and 0 <= colDestino <8: #Dentro del tablero?
-                casillaDestino = self.board[filaDestino][colDestino] #Contenido de la casilla destino?
-                if casillaDestino == "--": #Casilla vacia 
-                    moves.append(Move((r, c), (filaDestino, colDestino), self.board)) #Agregar movimiento a movimientos posibles
-                elif casillaDestino[0] == enemigoColor: #Casilla con pieza enemiga 
-                    moves.append(Move((r, c), (filaDestino, colDestino), self.board)) #Agregar movimiento a movimientos posibles
+        for d in direcciones:
+            filaDestino = r + d[0]
+            colDestino = c + d[1]
+            if 0 <= filaDestino < 8 and 0 <= colDestino <8:
+                casillaDestino = self.board[filaDestino][colDestino]
+                if casillaDestino == "--" or casillaDestino[0] == enemigoColor:
+                    moves.append(Move((r, c), (filaDestino, colDestino), self.board))
         return
+
     """
     Obtener todos los movimientos de alfil en la posicion (r, c)
     """
     def getBishopMoves(self, r, c, moves):
         direcciones = [(-1, -1), (-1, 1), (1, -1), (1, 1)] #Diagonales
-        enemigoColor = "b" if self.whiteToMove else "w" #Color del enemigo
-        for d in direcciones: #Iterar sobre todas las direcciones posibles
-            for i in range(1,8): 
+        enemigoColor = "b" if self.whiteToMove else "w"
+        for d in direcciones:
+            for i in range(1,8):
                 filaDestino = r + d[0]*i
                 colDestino = c + d[1]*i
-                if 0 <= filaDestino < 8 and 0 <= colDestino <8: #Dentro del tablero
-                    casillaDestino = self.board[filaDestino][colDestino] #Contenido de la casilla destino?
-                    if casillaDestino == "--": #Casilla vacia
-                        moves.append(Move((r, c), (filaDestino, colDestino), self.board))  #Agregar movimiento a movimientos posibles
-                    elif casillaDestino[0] == enemigoColor: #Casilla con pieza enemiga
-                        moves.append(Move((r, c), (filaDestino, colDestino), self.board)) #Agregar movimiento a movimientos posibles
-                        break #No puede saltar sobre piezas
-                    else: #Casilla con pieza propia
+                if 0 <= filaDestino < 8 and 0 <= colDestino <8:
+                    casillaDestino = self.board[filaDestino][colDestino]
+                    if casillaDestino == "--":
+                        moves.append(Move((r, c), (filaDestino, colDestino), self.board))
+                    elif casillaDestino[0] == enemigoColor:
+                        moves.append(Move((r, c), (filaDestino, colDestino), self.board))
                         break
-                else: #Fuera del tablero
+                    else:
+                        break
+                else:
                     break
         return
+
     """
     Obtener todos los movimientos de reina en la posicion (r, c)
     """
@@ -153,18 +224,17 @@ class GameState():
     Obtener todos los movimientos de rey en la posicion (r, c)
     """
     def getKingMoves(self, r, c, moves):
-        direcciones = [(-1, -1), (-1, 0), (-1, 1), (0, -1), (0, 1), (1, -1), (1, 0), (1, 1)] #Todas las direcciones
-        enemigoColor = "b" if self.whiteToMove else "w" #Color del enemigo
-        for d in direcciones: #Iterar sobre todas las direcciones posibles
-            filaDestino = r + d[0] #Fila destino
-            colDestino = c + d[1] #Columna destino
-            if 0 <= filaDestino < 8 and 0 <= colDestino <8: #Dentro del tablero?
-                casillaDestino = self.board[filaDestino][colDestino] #Contenido de la casilla destino?
-                if casillaDestino == "--": #Casilla vacia 
-                    moves.append(Move((r, c), (filaDestino, colDestino), self.board)) #Agregar movimiento a movimientos posibles
-                elif casillaDestino[0] == enemigoColor: #Casilla con pieza enemiga 
-                    moves.append(Move((r, c), (filaDestino, colDestino), self.board)) #Agregar movimiento a movimientos posibles
+        direcciones = [(-1, -1), (-1, 0), (-1, 1), (0, -1), (0, 1), (1, -1), (1, 0), (1, 1)]
+        enemigoColor = "b" if self.whiteToMove else "w"
+        for d in direcciones:
+            filaDestino = r + d[0]
+            colDestino = c + d[1]
+            if 0 <= filaDestino < 8 and 0 <= colDestino <8:
+                casillaDestino = self.board[filaDestino][colDestino]
+                if casillaDestino == "--" or casillaDestino[0] == enemigoColor:
+                    moves.append(Move((r, c), (filaDestino, colDestino), self.board))
         return
+
 
 class Move():
     #Traduccion de filas y columnas a notacion de ajedrez para logica de juego
@@ -180,9 +250,8 @@ class Move():
         self.endCol = endSq[1]
         self.pieceMoved = board[self.startRow][self.startCol]
         self.pieceCaptured = board[self.endRow][self.endCol]
-        self.moveID = self.startRow * 1000 + self.startCol *100 + self.endRow *10 + self.endCol #Identificador unico para cada movimiento
-        print(self.moveID)
-    
+        self.moveID = self.startRow * 1000 + self.startCol *100 + self.endRow *10 + self.endCol
+
     """
     Comparar movimientos para saber si son iguales y asi validar movimientos
     """
@@ -190,12 +259,12 @@ class Move():
         if isinstance(other, Move):
             return self.moveID == other.moveID
         return False
+
     """
     String con la notacion de ajedrez del movimiento
     """
     def getChessNotation(self):
-        #Puede mejorarse para incluir capturas, jaques, etc.
         return self.getRankFile(self.startRow, self.startCol) + self.getRankFile(self.endRow, self.endCol)
+
     def getRankFile(self, r, c):
         return self.colsToFiles[c] + self.rowsToRanks[r]
-    
