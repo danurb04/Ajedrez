@@ -69,9 +69,11 @@ class GameState():
             self.undoMove()  
         if len(moves) == 0: #no hay movimientos, es mate o empate
             if self.inCheck():
-                self.checkMate = True
+                self.checkMate = True #si no hay movimientos y el rey es atacado, jaque mate
+                self.staleMate = False
             else:
-                self.checkMate = True
+                self.checkMate = False
+                self.staleMate = True
         else:
             self.checkMate = False
             self.staleMate = False
