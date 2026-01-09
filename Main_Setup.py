@@ -229,6 +229,7 @@ def main():
     playerClicks = [] #Lista de tuplas [(fila1, columna1), (fila2, columna2)] para registrar los clicks del jugador para movimiento
     errorMessage = "" #mensaje para cuando hay movimiento inválido
     errorFrames = 0 #cantidad de frames que sale el mensaje
+    spi.send_board(gs.board)  # Enviar el estado inicial del tablero por SPI
 
 
     while correr:
