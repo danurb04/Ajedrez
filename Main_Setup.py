@@ -4,6 +4,7 @@ import pygame as p
 import Engine
 import json
 import os
+import random
 
 #abrir json en Windows
 import tkinter as tk
@@ -238,11 +239,39 @@ def main():
 
             elif evento.type == p.KEYDOWN: 
                 if evento.key == p.K_ESCAPE: 
-                    if state == STATE_GAME: # si uno da escape estando en el tablero lo devuelve al setup del modo escogido 
-                        state = STATE_SETUP
+                    if state == STATE_GAME: # si uno da escape estando en el tablero lo devuelve al menu 
+                        state = STATE_MENU
                     else:
                         correr = False # si uno da escape estando en el menu o setup cierra el programa
+                
+                elif evento.key == p.K_SPACE: #Estripar la tecla de espacio hace cambio de turno
+                    if state == STATE_GAME:
+                        if gs.checkMate or gs.staleMate: #si hay jaque mate o stale mate no se puede usar el cambio de turno
+                            continue
 
+                        elif gs.inCheck(): #si el rey está en jaque no permite cambio de turno y obliga al jugador a hacer jugada para salvar el rey
+                            errorMessage = ("Rey en jaque", "Cambio de turno inválido")
+                            errorFrames = 15                           
+                    
+
+                        else:
+                            gs.whiteToMove = not gs.whiteToMove 
+                            despues = "W" if gs.whiteToMove else "B" #guarda quien es el siguiente en tener turno para poner en el mensaje
+
+                            # Limpiar clicks previos al cambio de turno
+                            sqSelected = ()
+                            playerClicks = []
+
+                            #Recalcular cuuales son los movimientos validos del nuevo turno
+                            validMoves = gs.getValidMoves()
+                            moveMade = False   
+
+                            # Mensaje que anuncia el cambio de turno
+                            linea1 = "Cambio de turno"
+                            linea2 = f"Juega: {despues}"
+
+                            errorMessage = (linea1, linea2)
+                            errorFrames = 15  # 1 segundo a 15 fps                    
 
             
             # En estado menu (seleccionar modo)
@@ -312,15 +341,17 @@ def main():
 
 
 
-            # En estado juego (aplica para modo asistido o automatico, pero creo que hay que cambiar algo de salto de turnos para el automatico, se ve despues)
-
+            # En estado juego (aplica para modo asistido o automatico, pero creo que hay que cambiar algo de salto de turnos para el automatico, se ve despues) 
             elif state == STATE_GAME:
-                        
+
                 # Manejar clicks del mouse
                 if evento.type == p.MOUSEBUTTONDOWN:
                     ubicacion = p.mouse.get_pos() #Posicion del mouse en (x,y)
                     columna = ubicacion[0] // SQ_SIZE
                     fila = ubicacion[1] // SQ_SIZE
+
+                    if gs.checkMate or gs.staleMate: # si hay jaquemate o stalemate no permite hacer clicks 
+                        continue
 
                     if sqSelected == (fila, columna): #El usuario hizo click en la misma casilla dos veces
                         sqSelected = () #Deseleccionar
@@ -344,6 +375,13 @@ def main():
                             playerClicks = [sqSelected] #Mantener solo el ultimo click
 
 
+                # Si es modo automático y es turno de negras, ignorar clicks del usuario, debe cambiarse después si agregamos la posibilidad de que modo automaticvo juegue con blancas
+                if mode == MODE_AUTO and (not gs.whiteToMove):
+                    continue
+
+
+
+
         # Dibuja en el GUI dependiendo del estado en el que esté 
 
 
@@ -360,9 +398,13 @@ def main():
 
         elif state == STATE_GAME:
 
+            gameOver = gs.checkMate or gs.staleMate
+
             if moveMade:
                 validMoves = gs.getValidMoves() #Actualizar los movimientos validos
                 moveMade = False
+            
+           
 
             # === Movimientos posibles de la pieza seleccionada (luces guia) ===
             movesValidFromSelected = [] #lista con movimientos posibles (verdes+amarillos)
@@ -383,10 +425,53 @@ def main():
 
             dibujarGameState(screen, gs, sqSelected, movesValidFromSelected, movesInvalidFromSelected)
 
-            if errorFrames > 0: #si se generó jugada inválida,  mostrar el mensaje de error (ahora error en setup)
+
+            if mode == MODE_AUTO: #si está en modo Auto, verifica si es el turno de las negras y hacer un movimiento aletorio de los válidos
+
+                if not gs.whiteToMove:
+                    autoMoves = gs.getValidMoves()
+
+                    if len(autoMoves) > 0:
+                        autoMove = random.choice(autoMoves)
+                        gs.makeMove(autoMove)
+                        moveMade = True
+
+                        # limpiar si alguien hacía clicks en turno de negras (no debería de poder mover nada en turno de negras)
+                        sqSelected = ()
+                        playerClicks = []
+
+
+
+            if gameOver: #dibuja un cuadro más grande si se da la condición de jaque mate o empate
+                
+                box_w, box_h = 420, 220
+                x = WIDTH//2 - box_w//2
+                y = HEIGHT//2 - box_h//2
+
+                p.draw.rect(screen, p.Color("white"), p.Rect(x, y, box_w, box_h))
+                p.draw.rect(screen, p.Color("gray"),  p.Rect(x, y, box_w, box_h), 3)
+
+                if gs.checkMate: #si hay jaquemate verifica quien gana y lo pone en el mensaje
+                    winner = "B" if gs.whiteToMove else "W"
+                    draw_text(screen, "JAQUE MATE", (WIDTH//2, y + 55), font_title, p.Color("red"))
+                    draw_text(screen, f"Gana: {winner}", (WIDTH//2, y + 105), font_title, p.Color("black"))
+                else:
+                    draw_text(screen, "EMPATE", (WIDTH//2, y + 70), font_title, p.Color("black"))
+                    draw_text(screen, "Sin movimientos legales", (WIDTH//2, y + 115), font_btn, p.Color("black"))
+
+                draw_text(screen, "Presione ESC para volver", (WIDTH//2, y + 175), font_btn, p.Color("gray"))
+
+                        
+
+            if errorFrames > 0: #si se generó jugada inválida, o hubo cambio de turno mostrar el mensaje 
                 p.draw.rect(screen, p.Color("white"), p.Rect(WIDTH//2 - 120, HEIGHT//2 - 40, 240, 80))
                 p.draw.rect(screen, p.Color("gray"),  p.Rect(WIDTH//2 - 120, HEIGHT//2 - 40, 240, 80), 2)
-                draw_text(screen, errorMessage, (WIDTH // 2, HEIGHT // 2), font_btn, p.Color("red"))
+
+                if isinstance(errorMessage, tuple): #si el mensaje trae más de un renglón (como el de cambio de turno) usa el errorMessage en versión tupla (mensaje de cada renglon), si no en versión simple
+                    draw_text(screen, errorMessage[0], (WIDTH // 2, HEIGHT // 2 - 10), font_btn, p.Color("red"))
+                    draw_text(screen, errorMessage[1], (WIDTH // 2, HEIGHT // 2 + 15), font_btn, p.Color("red"))
+                else:
+                    draw_text(screen, errorMessage, (WIDTH // 2, HEIGHT // 2), font_btn, p.Color("red"))
                 errorFrames -= 1
 
         p.display.flip()  #Actualizar la pantalla
