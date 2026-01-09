@@ -5,6 +5,8 @@ import Engine
 import json
 import os
 import random
+from spi_link import SpiLink
+
 
 #abrir json en Windows
 import tkinter as tk
@@ -201,6 +203,7 @@ El main se encargará de manejar los inputs del usuario y la salida grafica
 """
 def main():
     p.init()
+    spi = SpiLink()  # Inicializar la comunicación SPI
     screen = p.display.set_mode((WIDTH, HEIGHT))
     clock = p.time.Clock()
     screen.fill(p.Color("white"))
@@ -335,6 +338,8 @@ def main():
 
                                             state = STATE_GAME
 
+                                            spi.send_board(gs.board)  # Enviar el estado del tablero por SPI
+
                                         except Exception:
                                             errorMessage = "Error cargando archivo"
                                             errorFrames = 30
@@ -364,6 +369,7 @@ def main():
                         move = Engine.Move(playerClicks[0], playerClicks[1], gs.board)
                         if move in validMoves: #Si el movimiento es valido
                             gs.makeMove(move)
+                            spi.send_board(gs.board)  # Enviar el estado del tablero por SPI
                             moveMade = True #Se hizo un movimiento
                             sqSelected = () #Resetear seleccion
                             playerClicks = [] #Resetear lista de clicks
@@ -434,6 +440,7 @@ def main():
                     if len(autoMoves) > 0:
                         autoMove = random.choice(autoMoves)
                         gs.makeMove(autoMove)
+                        spi
                         moveMade = True
 
                         # limpiar si alguien hacía clicks en turno de negras (no debería de poder mover nada en turno de negras)
@@ -476,6 +483,7 @@ def main():
 
         p.display.flip()  #Actualizar la pantalla
         clock.tick(15) #15 fps
+    spi.close()  # Cerrar la comunicación SPI al salir
 
 
 """
