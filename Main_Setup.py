@@ -245,10 +245,10 @@ def main():
 
     def request_validmoves():
         nonlocal position_id, pending_id
-    position_id += 1
-    pending_id = position_id
-    # Snapshot mínimo
-    req_q.put((position_id, gs.board, gs.whiteToMove))
+        position_id += 1
+        pending_id = position_id
+        # Snapshot mínimo
+        req_q.put((position_id, gs.board, gs.whiteToMove))
 
     def poll_validmoves():
         nonlocal pending_id, validMoves, gameOver
