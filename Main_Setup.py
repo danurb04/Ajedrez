@@ -7,6 +7,7 @@ import os
 import random
 from multiprocessing import Process, Queue
 import mp_worker
+from spi_link import SpiLink
 
 #abrir json en Windows
 import tkinter as tk
@@ -203,6 +204,7 @@ El main se encargará de manejar los inputs del usuario y la salida grafica
 """
 def main():
     p.init()
+    spi = SpiLink()  # Inicializar la comunicación SPI
     screen = p.display.set_mode((WIDTH, HEIGHT))
     clock = p.time.Clock()
     screen.fill(p.Color("white"))
@@ -223,6 +225,16 @@ def main():
     validMoves = gs.getValidMoves() #Obtener los movimientos validos
     moveMade = False #Variable para saber si se hizo un movimiento para asi solo verificar movimientos posibles y validos una vez se haga un movimiento
     cargarImagenes() #Cargar las imagenes de las piezas
+    correr = True
+    sqSelected = () #Tupla (fila, columna) de la casilla seleccionada, inicialmente vacia
+    playerClicks = [] #Lista de tuplas [(fila1, columna1), (fila2, columna2)] para registrar los clicks del jugador para movimiento
+    errorMessage = "" #mensaje para cuando hay movimiento inválido
+    errorFrames = 0 #cantidad de frames que sale el mensaje
+    EMPTY_BOARD = [["--" for _ in range(8)] for _ in range(8)] #tablero vacio para menu y setup
+    spi.send_board(EMPTY_BOARD)  # Enviar el tablero por SPI inicialmente
+    gameOver = gs.checkMate or gs.staleMate #fin del juego si hay jaque mate o empate (calculado en engine)
+
+
     # ===== multiprocessing setup
 
     
@@ -264,11 +276,7 @@ def main():
                 gameOver = cm or sm
     # ===================================================
     #    
-    correr = True
-    sqSelected = () #Tupla (fila, columna) de la casilla seleccionada, inicialmente vacia
-    playerClicks = [] #Lista de tuplas [(fila1, columna1), (fila2, columna2)] para registrar los clicks del jugador para movimiento
-    errorMessage = "" #mensaje para cuando hay movimiento inválido
-    errorFrames = 0 #cantidad de frames que sale el mensaje
+    
 
     try:
         while correr:
@@ -284,6 +292,7 @@ def main():
                     if evento.key == p.K_ESCAPE: 
                         if state == STATE_GAME: # si uno da escape estando en el tablero lo devuelve al menu 
                             state = STATE_MENU
+                            spi.send_board(EMPTY_BOARD) #mandar tablero vacío si se sale a menú
                         else:
                             correr = False # si uno da escape estando en el menu o setup cierra el programa
                     
@@ -348,6 +357,7 @@ def main():
 
                                 elif b["action"] == "NEW_GAME": #empieza un juego de cero como con el main de antes
                                     gs = Engine.GameState()
+                                    spi.send_board(gs.board) #tablero inicial
                                     validMoves = gs.getValidMoves()
                                     moveMade = False
                                     sqSelected = ()
@@ -381,6 +391,8 @@ def main():
 
                                                 state = STATE_GAME
 
+                                                spi.send_board(gs.board)  # Enviar el estado del tablero por SPI
+
                                             except Exception:
                                                 errorMessage = "Error cargando archivo"
                                                 errorFrames = 30
@@ -390,13 +402,15 @@ def main():
                 # En estado juego (aplica para modo asistido o automatico, pero creo que hay que cambiar algo de salto de turnos para el automatico, se ve despues) 
                 elif state == STATE_GAME:
 
+                    gameOver = gs.checkMate or gs.staleMate
+
                     # Manejar clicks del mouse
                     if evento.type == p.MOUSEBUTTONDOWN:
                         ubicacion = p.mouse.get_pos() #Posicion del mouse en (x,y)
                         columna = ubicacion[0] // SQ_SIZE
                         fila = ubicacion[1] // SQ_SIZE
 
-                        if gs.checkMate or gs.staleMate: # si hay jaquemate o stalemate no permite hacer clicks 
+                        if gameOver: # si hay jaquemate o stalemate no permite hacer clicks 
                             continue
 
                         if sqSelected == (fila, columna): #El usuario hizo click en la misma casilla dos veces
@@ -410,6 +424,7 @@ def main():
                             move = Engine.Move(playerClicks[0], playerClicks[1], gs.board)
                             if move in validMoves: #Si el movimiento es valido
                                 gs.makeMove(move)
+                                spi.send_board(gs.board)  # Enviar el estado del tablero por SPI
                                 moveMade = True #Se hizo un movimiento
                                 sqSelected = () #Resetear seleccion
                                 playerClicks = [] #Resetear lista de clicks
@@ -425,7 +440,15 @@ def main():
                     if mode == MODE_AUTO and (not gs.whiteToMove):
                         continue
 
-
+                    '''
+                    después vemos si implementamos lo de hacer una mini animación con los leds cuando haya jaque o stalemate (de momento no sirvió con código viejo de arduino + SPI)
+                    
+                    if gameOver:
+                        if gs.checkMate:
+                            spi.send_raw("G JM\n") #mandar al micro si hubo jaquemate
+                        else:
+                            spi.send_raw("G SM\n") #mandar al micro si hubo stalemate
+                    '''     
 
 
             # Dibuja en el GUI dependiendo del estado en el que esté 
@@ -474,15 +497,19 @@ def main():
 
                 if mode == MODE_AUTO: #si está en modo Auto, verifica si es el turno de las negras y hacer un movimiento aletorio de los válidos
 
+                    gameOver = gs.checkMate or gs.staleMate
+
                     if not gs.whiteToMove:
                     # Espera a que el worker termine de calcular validMoves
                         if pending_id is None and len(validMoves) > 0:
                             autoMove = random.choice(validMoves)
                             gs.makeMove(autoMove)
+                            spi.send_board(gs.board) #mandar cuando negras juegan en automático
                             moveMade = True
+
+                            # limpiar si alguien hacía clicks en turno de negras (no debería de poder mover nada en turno de negras)
                             sqSelected = ()
                             playerClicks = []
-
 
 
                 if gameOver: #dibuja un cuadro más grande si se da la condición de jaque mate o empate
@@ -519,6 +546,9 @@ def main():
 
             p.display.flip()  #Actualizar la pantalla
             clock.tick(15) #15 fps
+        spi.send_board(EMPTY_BOARD) #apagar leds antes de salir
+        spi.close() # Cerrar la comunicación SPI al salir
+        p.quit()
 
     finally:
     # Finalizar worker
@@ -583,4 +613,4 @@ def dibujarMovimientosPosibles(screen, movesValid, movesInvalid): #se agregó mo
 #Por recomendacion de Python para poder importar el main sin ejecutar este .py si fuera necesario
 if __name__ == "__main__":
     main()
-    main()
+
