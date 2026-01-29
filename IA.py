@@ -1,5 +1,5 @@
 # IA.py
-# IA simple Minimax + AlphaBeta SIN contaminar gs.checkMate/gs.staleMate
+# IA simple Minimax + AlphaBeta 
 
 import random
 
@@ -12,14 +12,14 @@ PIECE_VALUE = {
     "P": 1
 }
 
-CHECKMATE_SCORE = 10_000
-STALEMATE_SCORE = 0
+CHECKMATE_SCORE = 10_000 # puntuación alta para mate
+STALEMATE_SCORE = 0    # puntuación para empate
 
 
 def _safe_valid_moves(gs):
     """
-    Llama gs.getValidMoves() PERO restaura checkMate/staleMate para que
-    la IA no deje esos flags "pegados" en el estado real del juego.
+    Llama gs.getValidMoves() pero restaura checkMate/staleMate después.
+    Esto para evitar contaminar el estado real del juego durante la búsqueda.
     """
     old_cm = gs.checkMate
     old_sm = gs.staleMate
@@ -63,66 +63,66 @@ def _terminal_score(gs, no_moves):
         # Sin jaque y sin movimientos => stalemate
         return STALEMATE_SCORE
 
-
-def find_best_move(gs, valid_moves, depth=2):
+# Encuentra el mejor movimiento usando Minimax con poda Alpha-Beta
+def find_best_move(gs, valid_moves, depth=2): 
     if not valid_moves:
         return None
 
-    random.shuffle(valid_moves)
+    random.shuffle(valid_moves) # para variar entre movimientos iguales
 
-    best_move = None
+    best_move = None 
 
-    if gs.whiteToMove:
-        best_score = -float("inf")
-        for mv in valid_moves:
-            gs.makeMove(mv)
-            score = _minimax(gs, depth - 1, -float("inf"), float("inf"), maximizing=False)
-            gs.undoMove()
-            if score > best_score:
-                best_score = score
-                best_move = mv
-    else:
-        best_score = float("inf")
-        for mv in valid_moves:
-            gs.makeMove(mv)
-            score = _minimax(gs, depth - 1, -float("inf"), float("inf"), maximizing=True)
-            gs.undoMove()
-            if score < best_score:
-                best_score = score
-                best_move = mv
+    if gs.whiteToMove: 
+        best_score = -float("inf") # puntuación inicial muy baja
+        for mv in valid_moves: # iterar sobre movimientos
+            gs.makeMove(mv) # hacer el movimiento
+            score = _minimax(gs, depth - 1, -float("inf"), float("inf"), maximizing=False) # evaluar con minimax
+            gs.undoMove() # deshacer el movimiento
+            if score > best_score: # si la puntuación es mejor, actualizar
+                best_score = score # mejor puntuación
+                best_move = mv # mejor movimiento
+    else: # turno de negras
+        best_score = float("inf") # puntuación inicial muy alta
+        for mv in valid_moves: # iterar sobre movimientos
+            gs.makeMove(mv) # hacer el movimiento
+            score = _minimax(gs, depth - 1, -float("inf"), float("inf"), maximizing=True) # evaluar con minimax
+            gs.undoMove() # deshacer el movimiento
+            if score < best_score: # si la puntuación es mejor, actualizar
+                best_score = score # mejor puntuación
+                best_move = mv # mejor movimiento
 
-    return best_move
+    return best_move  
 
-
+# Minimax con poda Alpha-Beta
 def _minimax(gs, depth, alpha, beta, maximizing):
-    moves = _safe_valid_moves(gs)
+    moves = _safe_valid_moves(gs) # obtener movimientos legales
 
-    # terminal o profundidad
-    term = _terminal_score(gs, no_moves=(len(moves) == 0))
-    if term is not None:
-        return term
-    if depth == 0:
-        return _material_score(gs)
+    # terminal o profundidad 
+    term = _terminal_score(gs, no_moves=(len(moves) == 0)) # verificar si es terminal
+    if term is not None: 
+        return term # retornar puntuación terminal
+    if depth == 0: # profundidad alcanzada
+        return _material_score(gs) # evaluar posición
 
-    if maximizing:
-        best = -float("inf")
-        for mv in moves:
-            gs.makeMove(mv)
-            score = _minimax(gs, depth - 1, alpha, beta, maximizing=False)
-            gs.undoMove()
-            best = max(best, score)
-            alpha = max(alpha, best)
-            if beta <= alpha:
-                break
+    if maximizing: # turno de blancas
+        best = -float("inf") # puntuación inicial muy baja
+        for mv in moves: # iterar sobre movimientos
+            gs.makeMove(mv) # hacer el movimiento
+            score = _minimax(gs, depth - 1, alpha, beta, maximizing=False) # evaluar con minimax
+            gs.undoMove() # deshacer el movimiento
+            best = max(best, score) # actualizar mejor puntuación 
+            alpha = max(alpha, best) # actualizar alpha
+            if beta <= alpha: # poda beta
+                break 
         return best
-    else:
-        best = float("inf")
-        for mv in moves:
-            gs.makeMove(mv)
-            score = _minimax(gs, depth - 1, alpha, beta, maximizing=True)
-            gs.undoMove()
-            best = min(best, score)
-            beta = min(beta, best)
-            if beta <= alpha:
+    else: # turno de negras
+        best = float("inf") # puntuación inicial muy alta
+        for mv in moves: # iterar sobre movimientos
+            gs.makeMove(mv) # hacer el movimiento
+            score = _minimax(gs, depth - 1, alpha, beta, maximizing=True) # evaluar con minimax
+            gs.undoMove() # deshacer el movimiento
+            best = min(best, score) # actualizar mejor puntuación
+            beta = min(beta, best) # actualizar beta
+            if beta <= alpha: # poda alpha
                 break
         return best
