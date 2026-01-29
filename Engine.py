@@ -30,6 +30,10 @@ class GameState():
     def makeMove(self, move):
         self.board[move.startRow][move.startCol] = "--" #Vaciar la casilla de inicio
         self.board[move.endRow][move.endCol] = move.pieceMoved #Colocar la pieza en la casilla destino
+        if move.isPawnPromotion:
+            move.promotedFrom = move.pieceMoved   # guarda "wP" o "bP"
+            promoted = move.pieceMoved[0] + "Q"   # "wQ" o "bQ"
+            self.board[move.endRow][move.endCol] = promoted  # promover a reina automáticamente
         self.moveLog.append(move) #Agregar el movimiento al historial
         self.whiteToMove = not self.whiteToMove #Cambiar el turno
 
@@ -43,7 +47,11 @@ class GameState():
     def undoMove(self):
         if len(self.moveLog) != 0:  
             move = self.moveLog.pop()
-            self.board[move.startRow][move.startCol] = move.pieceMoved
+             # Si fue promoción, al deshacer vuelve a ser peón
+            piece_to_restore = move.pieceMoved
+            if hasattr(move, "isPawnPromotion") and move.isPawnPromotion:
+                piece_to_restore = move.promotedFrom  # "wP" o "bP"
+            self.board[move.startRow][move.startCol] = piece_to_restore
             self.board[move.endRow][move.endCol] = move.pieceCaptured
             self.whiteToMove = not self.whiteToMove
             # Actualiza posición del rey
@@ -295,6 +303,13 @@ class Move():
         self.pieceMoved = board[self.startRow][self.startCol]
         self.pieceCaptured = board[self.endRow][self.endCol]
         self.moveID = self.startRow * 1000 + self.startCol *100 + self.endRow *10 + self.endCol
+                # === PROMOCIÓN DE PEÓN ===
+        self.isPawnPromotion = False
+        if self.pieceMoved == "wP" and self.endRow == 0:
+            self.isPawnPromotion = True
+        elif self.pieceMoved == "bP" and self.endRow == 7:
+            self.isPawnPromotion = True
+
 
     """
     Comparar movimientos para saber si son iguales y asi validar movimientos
