@@ -7,7 +7,7 @@ import os
 import random
 from multiprocessing import Process, Queue
 import mp_worker
-from spi_link import SpiLink
+#from spi_link import SpiLink
 
 #abrir json en Windows
 import tkinter as tk
@@ -198,13 +198,78 @@ def pick_json_file():
     root.destroy()
     return file_path if file_path else None #si encuentra archivo disponible seleccionado lo abre, si no da error
 
+'''
+Crea botones que permite escoger entre Reina, Torre, Caballo y Alfil como opciones de promoción
+Utiliza imágenes de las piezas para promoción para blanco y negro respectivamente.
+'''
+
+def promotion_overlay_choice(screen, font_btn, mover_color, Imagenes):
+
+    choices = ["Q", "R", "B", "N"]
+    btn_w, btn_h = 78, 60
+    gap = 12
+    total_w = 4 * btn_w + 3 * gap
+
+    x0 = WIDTH // 2 - total_w // 2
+    y0 = HEIGHT // 2 - btn_h // 2
+
+    # Caja fondo
+    box_w = total_w + 40
+    box_h = btn_h + 90
+    box_x = WIDTH // 2 - box_w // 2
+    box_y = HEIGHT // 2 - box_h // 2
+
+    buttons = []
+    for i, ch in enumerate(choices):
+        rect = p.Rect(x0 + i * (btn_w + gap), y0 + 20, btn_w, btn_h)
+        buttons.append((rect, ch))
+
+    # Preparar mini imágenes (una vez)
+    mini_size = min(btn_w, btn_h) - 18  
+    promo_imgs = {}
+    for ch in choices:
+        key = mover_color + ch  # 'wQ', 'bN', etc
+        img = Imagenes[key]
+        promo_imgs[ch] = p.transform.smoothscale(img, (mini_size, mini_size))
+
+    while True:
+        # Overlay
+        p.draw.rect(screen, p.Color("white"), p.Rect(box_x, box_y, box_w, box_h))
+        p.draw.rect(screen, p.Color("gray"),  p.Rect(box_x, box_y, box_w, box_h), 3)
+
+        title = "Promoción: elige pieza"
+        draw_text(screen, title, (WIDTH // 2, box_y + 25), font_btn, p.Color("black"))
+
+        mouse_pos = p.mouse.get_pos()
+        for rect, ch in buttons:
+            color = p.Color(170, 170, 170) if rect.collidepoint(mouse_pos) else p.Color(200, 200, 200)
+            p.draw.rect(screen, color, rect, border_radius=8)
+            p.draw.rect(screen, p.Color("gray"), rect, 2, border_radius=8)
+
+            img = promo_imgs[ch]
+            img_rect = img.get_rect(center=rect.center)
+            screen.blit(img, img_rect)
+
+        p.display.flip()
+
+        for event in p.event.get():
+            if event.type == p.QUIT:
+                raise SystemExit
+            if event.type == p.KEYDOWN and event.key == p.K_ESCAPE:
+                return "Q"  # Reina por default
+            if event.type == p.MOUSEBUTTONDOWN:
+                mx, my = event.pos
+                for rect, ch in buttons:
+                    if rect.collidepoint(mx, my):
+                        return ch
+
 
 """
 El main se encargará de manejar los inputs del usuario y la salida grafica
 """
 def main():
     p.init()
-    spi = SpiLink()  # Inicializar la comunicación SPI
+    #spi = SpiLink()  # Inicializar la comunicación SPI
     screen = p.display.set_mode((WIDTH, HEIGHT))
     clock = p.time.Clock()
     screen.fill(p.Color("white"))
@@ -231,7 +296,7 @@ def main():
     errorMessage = "" #mensaje para cuando hay movimiento inválido
     errorFrames = 0 #cantidad de frames que sale el mensaje
     EMPTY_BOARD = [["--" for _ in range(8)] for _ in range(8)] #tablero vacio para menu y setup
-    spi.send_board(EMPTY_BOARD)  # Enviar el tablero por SPI inicialmente
+    #spi.send_board(EMPTY_BOARD)  # Enviar el tablero por SPI inicialmente
     gameOver = gs.checkMate or gs.staleMate #fin del juego si hay jaque mate o empate (calculado en engine)
 
 
@@ -259,23 +324,46 @@ def main():
         nonlocal position_id, pending_id
         position_id += 1
         pending_id = position_id
-        # Snapshot mínimo
-        req_q.put((position_id, gs.board, gs.whiteToMove))
+        # Snapshot contemplando memoria de enroque y en passant
+        cr = gs.currentCastlingRights
+        castle_tuple = (cr.wks, cr.wqs, cr.bks, cr.bqs)
+        req_q.put((position_id, gs.board, gs.whiteToMove, gs.enPassantPossible, castle_tuple))
 
-    def poll_validmoves():
+
+    def poll_validmoves(): 
         nonlocal pending_id, validMoves, gameOver
         # Lee todas las respuestas disponibles, se queda con la más nueva
         while not resp_q.empty():
             pid, serialized, cm, sm = resp_q.get()
             if pending_id is not None and pid == pending_id:
                 # Reconstruir Engine.Move en el proceso principal
-                validMoves = [Engine.Move((sr, sc), (er, ec), gs.board) for (sr, sc, er, ec) in serialized]
+                validMoves = [decorate_special_flags(Engine.Move((sr, sc), (er, ec), gs.board), gs) for (sr, sc, er, ec) in serialized] #incluye banderas para enroque y en passant
                 gs.checkMate = cm
                 gs.staleMate = sm
                 pending_id = None
                 gameOver = cm or sm
-    # ===================================================
-    #    
+    # ===================================================#
+        
+
+    '''
+    Para obtener isCastleMove / isEnPassantMove en Moves reconstruidos desde el worker.
+    '''
+    def decorate_special_flags(m, gs):
+
+        # Enroque: rey mueve 2 columnas
+        if m.pieceMoved[1] == "K" and abs(m.endCol - m.startCol) == 2:
+            m.isCastleMove = True
+
+        # En passant: peón diagonal a casilla vacía que coincide con enPassantPossible
+        if m.pieceMoved[1] == "P":
+            ep = getattr(gs, "enPassantPossible", ())
+            if (m.endRow, m.endCol) == ep and m.startCol != m.endCol:
+                if gs.board[m.endRow][m.endCol] == "--":
+                    m.isEnPassantMove = True
+                    m.pieceCaptured = ("bP" if m.pieceMoved[0] == "w" else "wP") #marcar captura
+
+        return m
+
     
 
     try:
@@ -292,7 +380,7 @@ def main():
                     if evento.key == p.K_ESCAPE: 
                         if state == STATE_GAME: # si uno da escape estando en el tablero lo devuelve al menu 
                             state = STATE_MENU
-                            spi.send_board(EMPTY_BOARD) #mandar tablero vacío si se sale a menú
+                            #spi.send_board(EMPTY_BOARD) #mandar tablero vacío si se sale a menú
                         else:
                             correr = False # si uno da escape estando en el menu o setup cierra el programa
                     
@@ -313,10 +401,12 @@ def main():
                                 # Limpiar clicks previos al cambio de turno
                                 sqSelected = ()
                                 playerClicks = []
-
-                                #Recalcular cuuales son los movimientos validos del nuevo turno
-                                validMoves = gs.getValidMoves()
-                                moveMade = False   
+                                gs.enPassantPossible = ()  
+                                
+                                pending_id = None # invalidar cualquier respuesta vieja pendiente
+                                request_validmoves() #Recalcular cuuales son los movimientos validos del nuevo turno
+                                moveMade = False
+                                
 
                                 # Mensaje que anuncia el cambio de turno
                                 linea1 = "Cambio de turno"
@@ -357,7 +447,7 @@ def main():
 
                                 elif b["action"] == "NEW_GAME": #empieza un juego de cero como con el main de antes
                                     gs = Engine.GameState()
-                                    spi.send_board(gs.board) #tablero inicial
+                                   # spi.send_board(gs.board) #tablero inicial
                                     validMoves = gs.getValidMoves()
                                     moveMade = False
                                     sqSelected = ()
@@ -391,7 +481,7 @@ def main():
 
                                                 state = STATE_GAME
 
-                                                spi.send_board(gs.board)  # Enviar el estado del tablero por SPI
+                                               # spi.send_board(gs.board)  # Enviar el estado del tablero por SPI
 
                                             except Exception:
                                                 errorMessage = "Error cargando archivo"
@@ -422,9 +512,21 @@ def main():
 
                         if len(playerClicks) == 2: #Luego de dos clicks
                             move = Engine.Move(playerClicks[0], playerClicks[1], gs.board)
-                            if move in validMoves: #Si el movimiento es valido
-                                gs.makeMove(move)
-                                spi.send_board(gs.board)  # Enviar el estado del tablero por SPI
+
+                            chosenMove = None #busca la jugada que trae las flags de enroque y en passant
+                            for m in validMoves:
+                                if m == move:
+                                    chosenMove = m
+                                    break
+
+                            if chosenMove is not None: #Si el movimiento es valido
+
+                                if getattr(chosenMove, "isPawnPromotion", False): #si la jogada es promoción, antes de aplicarla permite escoger
+                                    mover_color = move.pieceMoved[0]  # 'w' o 'b'
+                                    chosenMove.promotionChoice = promotion_overlay_choice(screen, font_btn, mover_color, Imagenes)
+
+                                gs.makeMove(chosenMove)
+                                #spi.send_board(gs.board)  # Enviar el estado del tablero por SPI
                                 moveMade = True #Se hizo un movimiento
                                 sqSelected = () #Resetear seleccion
                                 playerClicks = [] #Resetear lista de clicks
@@ -473,7 +575,7 @@ def main():
                     request_validmoves()   # cálculo pesado fuera del proceso principal
                     moveMade = False
             
-
+                poll_validmoves()
                 # === Movimientos posibles de la pieza seleccionada (luces guia) ===
                 movesValidFromSelected = [] #lista con movimientos posibles (verdes+amarillos)
                 movesInvalidFromSelected = [] #lista con movimientos ilegales (rojos)
@@ -491,7 +593,7 @@ def main():
 
                             movesInvalidFromSelected = [m for m in movesAllFromSelected if m not in movesValidFromSelected] #movimientos inválidos de pieza: todos movimientos válidos - movimientos válidos (rojo)
                 
-                poll_validmoves()
+                
                 dibujarGameState(screen, gs, sqSelected, movesValidFromSelected, movesInvalidFromSelected)
 
 
@@ -504,7 +606,7 @@ def main():
                         if pending_id is None and len(validMoves) > 0:
                             autoMove = random.choice(validMoves)
                             gs.makeMove(autoMove)
-                            spi.send_board(gs.board) #mandar cuando negras juegan en automático
+                            #spi.send_board(gs.board) #mandar cuando negras juegan en automático
                             moveMade = True
 
                             # limpiar si alguien hacía clicks en turno de negras (no debería de poder mover nada en turno de negras)
@@ -546,8 +648,8 @@ def main():
 
             p.display.flip()  #Actualizar la pantalla
             clock.tick(15) #15 fps
-        spi.send_board(EMPTY_BOARD) #apagar leds antes de salir
-        spi.close() # Cerrar la comunicación SPI al salir
+        #spi.send_board(EMPTY_BOARD) #apagar leds antes de salir
+        #spi.close() # Cerrar la comunicación SPI al salir
         p.quit()
 
     finally:
@@ -600,7 +702,7 @@ def dibujarMovimientosPosibles(screen, movesValid, movesInvalid): #se agregó mo
         p.draw.circle(screen, p.Color("red"), (centro_x, centro_y), radio)
 
     for move in movesValid:
-        if move.pieceCaptured != "--": 
+        if move.pieceCaptured != "--" or getattr(move, "isEnPassantMove", False): 
             color = p.Color("yellow") #si el movimiento genera captura de pieza, color amarillo
         else:
             color = p.Color("green") #si el movimiento es en "--" color verde (movimiento posible)
