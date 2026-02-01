@@ -8,6 +8,7 @@ import random
 from multiprocessing import Process, Queue
 import mp_worker
 #from spi_link import SpiLink
+import IA 
 
 #abrir json en Windows
 import tkinter as tk
@@ -299,6 +300,13 @@ def main():
     #spi.send_board(EMPTY_BOARD)  # Enviar el tablero por SPI inicialmente
     gameOver = gs.checkMate or gs.staleMate #fin del juego si hay jaque mate o empate (calculado en engine)
 
+    AI_DEPTH = 2 #número de turnos que explora
+    ai_pid = 0
+    ai_pending = False
+    ai_best_move = None     # guarda (sr,sc,er,ec)
+    ai_best_promo = None    # guarda 'Q','R','B','N' o None
+
+
 
     # ===== multiprocessing setup
 
@@ -330,11 +338,26 @@ def main():
         req_q.put((position_id, gs.board, gs.whiteToMove, gs.enPassantPossible, castle_tuple))
 
 
-    def poll_validmoves(): 
+    def poll_responses(): 
         nonlocal pending_id, validMoves, gameOver
+        nonlocal ai_pending, ai_best_move, ai_best_promo
+
         # Lee todas las respuestas disponibles, se queda con la más nueva
         while not resp_q.empty():
-            pid, serialized, cm, sm = resp_q.get()
+            item = resp_q.get()
+
+            # respuesta de IA
+            if isinstance(item[0], str) and item[0] == "best":
+                _, pid, mv_tuple, promo, cm, sm = item
+                # solo aceptamos si estábamos esperando
+                if ai_pending and pid == ai_pid:
+                    ai_best_move = mv_tuple
+                    ai_best_promo = promo
+                    ai_pending = False
+                continue
+
+            # respuesta de validMoves
+            pid, serialized, cm, sm = item
             if pending_id is not None and pid == pending_id:
                 # Reconstruir Engine.Move en el proceso principal
                 validMoves = [decorate_special_flags(Engine.Move((sr, sc), (er, ec), gs.board), gs) for (sr, sc, er, ec) in serialized] #incluye banderas para enroque y en passant
@@ -342,6 +365,18 @@ def main():
                 gs.staleMate = sm
                 pending_id = None
                 gameOver = cm or sm
+
+
+    def request_bestmove(depth=2):
+        nonlocal ai_pid, ai_pending
+        ai_pid += 1
+        ai_pending = True
+
+        cr = gs.currentCastlingRights
+        castle_tuple = (cr.wks, cr.wqs, cr.bks, cr.bqs)
+
+        req_q.put(("best", ai_pid, gs.board, gs.whiteToMove, gs.enPassantPossible, castle_tuple, depth))
+
     # ===================================================#
         
 
@@ -452,6 +487,17 @@ def main():
                                     moveMade = False
                                     sqSelected = ()
                                     playerClicks = []
+                                    gameOver = gs.checkMate or gs.staleMate
+
+                                    # reset IA
+                                    ai_pending = False
+                                    ai_best_move = None
+                                    ai_best_promo = None
+
+                                    # sincronizar worker
+                                    pending_id = None
+                                    request_validmoves()
+
                                     state = STATE_GAME
 
                                 elif b["action"] == "LOAD_POS": #permite abrir el explorador de archivos y cargar un .json que incluye las variables iniciales de un tablero preestablecido
@@ -503,6 +549,10 @@ def main():
                         if gameOver: # si hay jaquemate o stalemate no permite hacer clicks 
                             continue
 
+                        # Si es modo automático y es turno de negras, ignorar clicks del usuario, debe cambiarse después si agregamos la posibilidad de que modo automaticvo juegue con blancas
+                        if mode == MODE_AUTO and (not gs.whiteToMove):
+                            continue
+
                         if sqSelected == (fila, columna): #El usuario hizo click en la misma casilla dos veces
                             sqSelected = () #Deseleccionar
                             playerClicks = [] #Borrar los clicks previos
@@ -522,7 +572,7 @@ def main():
                             if chosenMove is not None: #Si el movimiento es valido
 
                                 if getattr(chosenMove, "isPawnPromotion", False): #si la jogada es promoción, antes de aplicarla permite escoger
-                                    mover_color = move.pieceMoved[0]  # 'w' o 'b'
+                                    mover_color = chosenMove.pieceMoved[0]  # 'w' o 'b'
                                     chosenMove.promotionChoice = promotion_overlay_choice(screen, font_btn, mover_color, Imagenes)
 
                                 gs.makeMove(chosenMove)
@@ -530,6 +580,11 @@ def main():
                                 moveMade = True #Se hizo un movimiento
                                 sqSelected = () #Resetear seleccion
                                 playerClicks = [] #Resetear lista de clicks
+                                #Limpiar estado IA en caso de ser modo automático
+                                ai_best_move = None
+                                ai_best_promo = None
+                                ai_pending = False
+
                             else:
                                 if move in movesInvalidFromSelected: #si hubo jugada inválida poner el texto y el tiempo que va a estar el mensaje de error.
                                     errorMessage = "Jugada inválida"
@@ -538,9 +593,7 @@ def main():
                                 playerClicks = [sqSelected] #Mantener solo el ultimo click
 
 
-                    # Si es modo automático y es turno de negras, ignorar clicks del usuario, debe cambiarse después si agregamos la posibilidad de que modo automaticvo juegue con blancas
-                    if mode == MODE_AUTO and (not gs.whiteToMove):
-                        continue
+                    
 
                     '''
                     después vemos si implementamos lo de hacer una mini animación con los leds cuando haya jaque o stalemate (de momento no sirvió con código viejo de arduino + SPI)
@@ -575,7 +628,7 @@ def main():
                     request_validmoves()   # cálculo pesado fuera del proceso principal
                     moveMade = False
             
-                poll_validmoves()
+                poll_responses()
                 # === Movimientos posibles de la pieza seleccionada (luces guia) ===
                 movesValidFromSelected = [] #lista con movimientos posibles (verdes+amarillos)
                 movesInvalidFromSelected = [] #lista con movimientos ilegales (rojos)
@@ -601,17 +654,33 @@ def main():
 
                     gameOver = gs.checkMate or gs.staleMate
 
-                    if not gs.whiteToMove:
-                    # Espera a que el worker termine de calcular validMoves
-                        if pending_id is None and len(validMoves) > 0:
-                            autoMove = random.choice(validMoves)
-                            gs.makeMove(autoMove)
-                            #spi.send_board(gs.board) #mandar cuando negras juegan en automático
-                            moveMade = True
+                    if not gs.whiteToMove and not gameOver:
+                       
+                        if pending_id is None:
+                            # Si no hemos pedido IA aún, pedirla
+                            if not ai_pending and ai_best_move is None:
+                                request_bestmove(depth=AI_DEPTH)
 
-                            # limpiar si alguien hacía clicks en turno de negras (no debería de poder mover nada en turno de negras)
-                            sqSelected = ()
-                            playerClicks = []
+                            # Si ya llegó best move, ejecutarlo
+                            if ai_best_move is not None:
+                                sr, sc, er, ec = ai_best_move
+                                mv = Engine.Move((sr, sc), (er, ec), gs.board)
+                                mv = decorate_special_flags(mv, gs)
+
+                                # Aplicar promoción si venía
+                                if getattr(mv, "isPawnPromotion", False) :
+                                    mv.promotionChoice = ai_best_promo if ai_best_promo else "Q"
+
+                                gs.makeMove(mv)    
+                                #spi.send_board(gs.board) #mandar cuando negras juegan en automático
+                                moveMade = True
+                                ai_best_move = None
+                                ai_best_promo = None
+                                # limpiar si alguien hacía clicks en turno de negras (no debería de poder mover nada en turno de negras)
+                                sqSelected = ()
+                                playerClicks = []
+
+   
 
 
                 if gameOver: #dibuja un cuadro más grande si se da la condición de jaque mate o empate
