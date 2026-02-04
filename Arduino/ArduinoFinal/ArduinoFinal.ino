@@ -5,21 +5,50 @@
 // 4 matrices 8x8 encadenadas (DIN->DOUT), total 256 LEDs
 // Panel lógico: 16x16
 // Tablero 8x8 -> cada casilla es un bloque 2x2 en el panel 16x16
-// DATA PIN: 6
+// DATA PIN MATRICES: 6
 // Protocolo SPI: "B token,token,...(64)\n"
+//
+// + EXTRA: 12 LEDs fijos en OTRO PIN (otra tira)
 // =====================================================
 
-// ---------- Hardware ----------
-#define DATA_PIN 6
+// ---------- Hardware (MATRICES) ----------
+#define DATA_PIN 7
 #define MATRIX_W 8
 #define MATRIX_H 8
 #define NUM_MATRICES 4
 #define NUM_LEDS (MATRIX_W * MATRIX_H * NUM_MATRICES)
 
 // Brillo bajo para pruebas (256 LEDs consumen mucho)
-#define BRIGHTNESS 8
+#define BRIGHTNESS 50
 
 Adafruit_NeoPixel strip(NUM_LEDS, DATA_PIN, NEO_GRB + NEO_KHZ800);
+
+// ---------- Hardware (LEDS FIJOS) ----------
+#define FIXED_PIN   6
+#define FIXED_COUNT 12
+#define FIXED_BRIGHTNESS 125
+
+Adafruit_NeoPixel fixedStrip(FIXED_COUNT, FIXED_PIN, NEO_GRB + NEO_KHZ800);
+
+// === COLORES ===
+// Formato original: (R, G, B) -> Formato corregido para tu tira: (G, R, B)
+
+#define W_P fixedStrip.Color(120, 255, 180) // Era (255, 120, 180)
+#define W_R fixedStrip.Color(220,  80, 255) // Era (80, 220, 255)
+#define W_N fixedStrip.Color(255, 120,   0) // Era (120, 255, 0)
+#define W_B fixedStrip.Color( 62, 255,  33) // Era (255, 62, 33)
+#define W_Q fixedStrip.Color(255, 255,   0) // Era (255, 255, 0) - (R=G)
+#define W_K fixedStrip.Color(217, 113,  65) // Era (113, 217, 65)
+
+// Formato original: (R, G, B) -> Formato corregido para tu tira: (G, R, B)
+
+#define B_P fixedStrip.Color(  0, 140,  30) // Era (140, 0, 30)
+#define B_R fixedStrip.Color( 40,   0, 120) // Era (0, 40, 120)
+#define B_N fixedStrip.Color(100,   0,   0) // Era (0, 100, 0)
+#define B_B fixedStrip.Color(  0,  80, 140) // Era (80, 0, 140)
+#define B_Q fixedStrip.Color( 70, 160,   0) // Era (160, 70, 0)
+#define B_K fixedStrip.Color(180, 180, 180) // Se mantiene igual (R=G)
+// ================================
 
 // ---------- SPI buffer ----------
 volatile char lineBuf[512];
@@ -45,7 +74,7 @@ ISR(SPI_STC_vect) {
 // --- 1) Flip global del tablero ---
 // Si el tablero te queda espejado izquierda/derecha, pon FLIP_X = true.
 // Si te queda arriba/abajo invertido, pon FLIP_Y = true.
-const bool FLIP_X = false;
+const bool FLIP_X = true;
 const bool FLIP_Y = true;
 
 // --- 2) Orden de matrices en la cadena ---
@@ -69,8 +98,8 @@ const bool FLIP_Y = true;
 #define Q_BR 3
 
 int MATRIX_AT[4] = {
-  0, // TL usa matriz física 0
-  1, // TR usa matriz física 1
+  1, // TL usa matriz física 0
+  0, // TR usa matriz física 1
   2, // BL usa matriz física 2
   3  // BR usa matriz física 3
 };
@@ -88,13 +117,13 @@ int MATRIX_AT[4] = {
 #define ORI_ROT180 3
 
 uint8_t ORI_AT[4] = {
-  ORI_NORMAL, // TL
-  ORI_NORMAL, // TR
-  ORI_NORMAL, // BL
-  ORI_NORMAL  // BR
+  ORI_ROT180, // TL
+  ORI_ROT180, // TR
+  ORI_ROT180, // BL
+  ORI_ROT180  // BR
 };
 
-// --- 4) Paleta de colores por pieza ---
+// --- 4) Paleta de colores por pieza (TABLERO) ---
 // Aquí puedes cambiar colores sin tocar el resto del código.
 uint32_t pieceToColor(const char* tok) {
   if (tok[0] == '-' && tok[1] == '-') return strip.Color(0, 0, 0);
@@ -107,9 +136,9 @@ uint32_t pieceToColor(const char* tok) {
       case 'P': return strip.Color(255, 120, 180);
       case 'R': return strip.Color( 80, 220, 255);
       case 'N': return strip.Color(120, 255,   0);
-      case 'B': return strip.Color(200,  80, 255);
-      case 'Q': return strip.Color(255, 170,   0);
-      case 'K': return strip.Color(255, 255, 255);
+      case 'B': return strip.Color(255,  62, 33);
+      case 'Q': return strip.Color(255, 255,   0);
+      case 'K': return strip.Color(113, 217, 65);
       default:  return strip.Color(255, 255, 255);
     }
   } else {
@@ -123,6 +152,30 @@ uint32_t pieceToColor(const char* tok) {
       default:  return strip.Color(180, 180, 180);
     }
   }
+}
+
+// =====================================================
+// LEDS FIJOS (NO SE TOCAN EN EL LOOP)
+// =====================================================
+void setupFixedLEDs() {
+  fixedStrip.begin();
+  fixedStrip.setBrightness(FIXED_BRIGHTNESS);
+
+  fixedStrip.setPixelColor(0,  W_P);
+  fixedStrip.setPixelColor(1,  W_R);
+  fixedStrip.setPixelColor(2,  W_N);
+  fixedStrip.setPixelColor(3,  W_B);
+  fixedStrip.setPixelColor(4,  W_Q);
+  fixedStrip.setPixelColor(5,  W_K);
+
+  fixedStrip.setPixelColor(6,  B_P);
+  fixedStrip.setPixelColor(7,  B_R);
+  fixedStrip.setPixelColor(8,  B_N);
+  fixedStrip.setPixelColor(9,  B_B);
+  fixedStrip.setPixelColor(10, B_Q);
+  fixedStrip.setPixelColor(11, B_K);
+
+  fixedStrip.show(); // quedan fijos
 }
 
 // =====================================================
@@ -193,19 +246,23 @@ void drawCell2x2(int r, int c, uint32_t color) {
 // =====================================================
 
 void setup() {
+  // --- MATRICES ---
   strip.begin();
   strip.setBrightness(BRIGHTNESS);
   strip.clear();
   strip.show();
 
-  // SPI Slave (UNO)
+  // --- LEDS FIJOS (otra tira, otro pin) ---
+  setupFixedLEDs();
+
+  // --- SPI Slave (UNO) ---
   pinMode(MISO, OUTPUT);
   pinMode(SS, INPUT);
   SPCR |= _BV(SPE);
   SPCR |= _BV(SPIE);
 
   Serial.begin(115200);
-  Serial.println("UNO listo: 4 matrices (16x16), 2x2 por casilla, SPI 'B ...'");
+  Serial.println("UNO listo: 4 matrices (16x16) + 12 LEDs fijos (otro pin), SPI 'B ...'");
 }
 
 void loop() {
@@ -218,22 +275,24 @@ void loop() {
   lineReady = false;
   interrupts();
 
-  // Mensaje esperado: "B token,token,..."
+  // Esperado: "B token,token,...(64)\n"
   if (!(msg[0] == 'B' && msg[1] == ' ')) return;
 
+  // Actualiza SOLO el tablero
   strip.clear();
 
   char* p = msg + 2;
   int count = 0;
 
-  while (count < 64) {
+  while (count < 64 && p && *p) {
+    // token = 2 chars tipo "wP" o "--"
+    // se separa por comas
     char* comma = strchr(p, ',');
     if (comma) *comma = '\0';
 
+    uint32_t col = pieceToColor(p);
     int r = count / 8;
     int c = count % 8;
-
-    uint32_t col = pieceToColor(p);
     drawCell2x2(r, c, col);
 
     count++;
@@ -242,4 +301,6 @@ void loop() {
   }
 
   if (count == 64) strip.show();
+
+  // Nota: NO tocamos fixedStrip aquí, quedan fijos siempre
 }
