@@ -21,6 +21,17 @@ class GameState():
         self.whiteKingLocation = (7, 4)
         self.blackKingLocation = (0, 4)
 
+        # Jugadas especiales
+
+        # Enroque
+        self.currentCastlingRights = CastleRights(True, True, True, True) #todas las condiciones de enroque deben cumplirse (inicia con todas siendo cumplidas, rey y torres sin moverse)
+        self.castleRightsLog = [CastleRights(self.currentCastlingRights.wks, self.currentCastlingRights.wqs,
+                                            self.currentCastlingRights.bks, self.currentCastlingRights.bqs)] #registro de cuales condiciones lleva
+        
+        # En passant (coordenada (fila, col) de la casilla "capturable")
+        self.enPassantPossible = ()
+        self.enPassantPossibleLog = [self.enPassantPossible]
+
         self.checkMate = False
         self.staleMate = False
 
@@ -28,6 +39,13 @@ class GameState():
     Hacer un movimiento (no valida si es legal)
     """
     def makeMove(self, move):
+
+        # Guardar estado para undo (en passant y enroque)
+        self.enPassantPossibleLog.append(self.enPassantPossible)
+        self.castleRightsLog.append(CastleRights(self.currentCastlingRights.wks, self.currentCastlingRights.wqs,
+                                                self.currentCastlingRights.bks, self.currentCastlingRights.bqs))
+
+
         self.board[move.startRow][move.startCol] = "--" #Vaciar la casilla de inicio
         self.board[move.endRow][move.endCol] = move.pieceMoved #Colocar la pieza en la casilla destino
         self.moveLog.append(move) #Agregar el movimiento al historial
@@ -38,6 +56,35 @@ class GameState():
             self.whiteKingLocation= (move.endRow, move.endCol)
         elif move.pieceMoved == 'bK':
             self.blackKingLocation = (move.endRow, move.endCol)
+
+        #Promoción de peón
+        if move.isPawnPromotion:
+            promo = move.promotionChoice if move.promotionChoice else "Q" #si no se escoge nada se pone reina por default
+            self.board[move.endRow][move.endCol] = move.pieceMoved[0] + promo
+
+        #En passant
+        if move.isEnPassantMove:
+            if move.pieceMoved[0] == 'w':
+                self.board[move.endRow + 1][move.endCol] = "--"
+            else:
+                self.board[move.endRow - 1][move.endCol] = "--"
+
+        if move.pieceMoved[1] == 'P' and abs(move.startRow - move.endRow) == 2:
+            self.enPassantPossible = ((move.startRow + move.endRow) // 2, move.startCol)
+        else:
+            self.enPassantPossible = ()
+
+        # Enroque
+        if move.isCastleMove:
+            if move.endCol - move.startCol == 2:
+                self.board[move.endRow][move.endCol - 1] = self.board[move.endRow][move.endCol + 1]
+                self.board[move.endRow][move.endCol + 1] = "--"
+            else:
+                self.board[move.endRow][move.endCol + 1] = self.board[move.endRow][move.endCol - 2]
+                self.board[move.endRow][move.endCol - 2] = "--"
+
+        self.updateCastleRights(move)
+
          
 
     def undoMove(self):
@@ -51,6 +98,25 @@ class GameState():
                 self.whiteKingLocation = (move.startRow, move.startCol)
             elif move.pieceMoved == "bK":
                 self.blackKingLocation = (move.startRow, move.startCol)
+
+            if move.isEnPassantMove:
+                self.board[move.endRow][move.endCol] = "--"
+                if move.pieceMoved[0] == "w":
+                    self.board[move.endRow + 1][move.endCol] = "bP"
+                else:
+                    self.board[move.endRow - 1][move.endCol] = "wP"
+
+            if move.isCastleMove:
+                if move.endCol - move.startCol == 2:
+                    self.board[move.endRow][move.endCol + 1] = self.board[move.endRow][move.endCol - 1]
+                    self.board[move.endRow][move.endCol - 1] = "--"
+                else:
+                    self.board[move.endRow][move.endCol - 2] = self.board[move.endRow][move.endCol + 1]
+                    self.board[move.endRow][move.endCol + 1] = "--"
+
+            self.enPassantPossible = self.enPassantPossibleLog.pop()
+            self.currentCastlingRights = self.castleRightsLog.pop()
+
     """
     Obtener todos los movimientos validos considerando jaques:
     """
@@ -80,11 +146,45 @@ class GameState():
         return moves
     
     '''
+    Verificar todas las condiciones que permiten hacer enroque
+    No permite enrocar si: Se mueve algún rey, se mueve alguna torre o se comen alguna torre.
+    '''
+    def updateCastleRights(self, move):
+        if move.pieceMoved == "wK":
+            self.currentCastlingRights.wks = False
+            self.currentCastlingRights.wqs = False
+        elif move.pieceMoved == "bK":
+            self.currentCastlingRights.bks = False
+            self.currentCastlingRights.bqs = False
+
+        if move.pieceMoved == "wR":
+            if move.startRow == 7 and move.startCol == 0:
+                self.currentCastlingRights.wqs = False
+            elif move.startRow == 7 and move.startCol == 7:
+                self.currentCastlingRights.wks = False
+        elif move.pieceMoved == "bR":
+            if move.startRow == 0 and move.startCol == 0:
+                self.currentCastlingRights.bqs = False
+            elif move.startRow == 0 and move.startCol == 7:
+                self.currentCastlingRights.bks = False
+
+        if move.pieceCaptured == "wR":
+            if move.endRow == 7 and move.endCol == 0:
+                self.currentCastlingRights.wqs = False
+            elif move.endRow == 7 and move.endCol == 7:
+                self.currentCastlingRights.wks = False
+        elif move.pieceCaptured == "bR":
+            if move.endRow == 0 and move.endCol == 0:
+                self.currentCastlingRights.bqs = False
+            elif move.endRow == 0 and move.endCol == 7:
+                self.currentCastlingRights.bks = False
+
+    '''
     Revisa si el enemigo puede atacar ese espacio
     '''
     def squareUnderAttack(self, r, c):
         self.whiteToMove = not self.whiteToMove # Cambiar turno
-        oppMoves = self.getAllPossibleMoves()
+        oppMoves = self.getAllPossibleMoves(includeCastleMoves=False)
         self.whiteToMove = not self.whiteToMove # Cambiar turno de nuevo
         for move in oppMoves:
             if move.endRow == r and move.endCol == c:
@@ -103,7 +203,7 @@ class GameState():
     """
     Obtener todos los movimientos posibles sin considerar jaques
     """
-    def getAllPossibleMoves(self):
+    def getAllPossibleMoves(self, includeCastleMoves=True):
         moves = []
         for r in range(len(self.board)): #Recorrer filas
             for c in range(len(self.board[r])): #Recorrer columnas
@@ -121,7 +221,7 @@ class GameState():
                     elif pieza == 'Q':
                         self.getQueenMoves(r, c, moves)
                     elif pieza == 'K':
-                        self.getKingMoves(r, c, moves)
+                        self.getKingMoves(r, c, moves, includeCastleMoves=includeCastleMoves)
         return moves
 
     """
@@ -137,9 +237,13 @@ class GameState():
             if c-1 >= 0: #Captura a la izquierda
                 if self.board[r-1][c-1][0] == 'b': #Pieza negra para capturar
                     moves.append(Move((r, c), (r-1, c-1), self.board))
+                elif (r-1, c-1) == self.enPassantPossible:
+                    moves.append(Move((r, c), (r-1, c-1), self.board, isEnPassantMove=True))
             if c+1 <=7: #Captura a la derecha
                 if self.board[r-1][c+1][0] == 'b': #Pieza negra para capturar
                     moves.append(Move((r, c), (r-1, c+1), self.board))
+                elif (r-1, c+1) == self.enPassantPossible:
+                    moves.append(Move((r, c), (r-1, c+1), self.board, isEnPassantMove=True))
         else: #Movimiento de peon negro
             if self.board[r+1][c] == "--": #Movimiento hacia adelante si la casilla esta vacia
                 moves.append(Move((r, c), (r+1, c), self.board))
@@ -149,9 +253,13 @@ class GameState():
             if c-1 >= 0: #Captura a la izquierda
                 if self.board[r+1][c-1][0] == 'w': #Pieza blanca para capturar
                     moves.append(Move((r, c), (r+1, c-1), self.board))
+                elif (r+1, c-1) == self.enPassantPossible:
+                    moves.append(Move((r, c), (r+1, c-1), self.board, isEnPassantMove=True))
             if c+1 <=7: #Captura a la derecha
                 if self.board[r+1][c+1][0] == 'w': #Pieza blanca para capturar
                     moves.append(Move((r, c), (r+1, c+1), self.board))
+                elif (r+1, c+1) == self.enPassantPossible:
+                    moves.append(Move((r, c), (r+1, c+1), self.board, isEnPassantMove=True))
         return
 
     """
@@ -225,7 +333,7 @@ class GameState():
     """
     Obtener todos los movimientos de rey en la posicion (r, c)
     """
-    def getKingMoves(self, r, c, moves):
+    def getKingMoves(self, r, c, moves, includeCastleMoves=True):
         direcciones = [(-1, -1), (-1, 0), (-1, 1), (0, -1), (0, 1), (1, -1), (1, 0), (1, 1)]
         enemigoColor = "b" if self.whiteToMove else "w"
         for d in direcciones:
@@ -235,7 +343,38 @@ class GameState():
                 casillaDestino = self.board[filaDestino][colDestino]
                 if casillaDestino == "--" or casillaDestino[0] == enemigoColor:
                     moves.append(Move((r, c), (filaDestino, colDestino), self.board))
+       
+        if includeCastleMoves:  # Movimientos de enroque
+            self.getCastleMoves(r, c, moves)
         return
+    
+
+    '''
+    Obtener movimientos de un enroque
+    '''
+    def getCastleMoves(self, r, c, moves):
+        if self.squareUnderAttack(r, c):
+            return
+        if (self.whiteToMove and self.currentCastlingRights.wks) or (not self.whiteToMove and self.currentCastlingRights.bks):
+            self.getKingsideCastleMoves(r, c, moves)
+        if (self.whiteToMove and self.currentCastlingRights.wqs) or (not self.whiteToMove and self.currentCastlingRights.bqs):
+            self.getQueensideCastleMoves(r, c, moves)
+
+    '''
+    Obtener movimientos de enroque del lado del rey
+    '''
+    def getKingsideCastleMoves(self, r, c, moves):
+        if self.board[r][c+1] == "--" and self.board[r][c+2] == "--":
+            if (not self.squareUnderAttack(r, c+1)) and (not self.squareUnderAttack(r, c+2)):
+                moves.append(Move((r, c), (r, c+2), self.board, isCastleMove=True))
+
+    '''
+    Obtener movimientos de enroque del lado de la reina
+    '''
+    def getQueensideCastleMoves(self, r, c, moves):
+        if self.board[r][c-1] == "--" and self.board[r][c-2] == "--" and self.board[r][c-3] == "--":
+            if (not self.squareUnderAttack(r, c-1)) and (not self.squareUnderAttack(r, c-2)):
+                moves.append(Move((r, c), (r, c-2), self.board, isCastleMove=True))
     
 
     '''
@@ -277,7 +416,21 @@ class GameState():
 
         # Actualizar reyes (para jaques)
         self.find_Kings()
+        
+        # Resetea jugadas especiales
+        self.currentCastlingRights = CastleRights(True, True, True, True)
+        self.castleRightsLog = [CastleRights(self.currentCastlingRights.wks, self.currentCastlingRights.wqs,
+                                            self.currentCastlingRights.bks, self.currentCastlingRights.bqs)]
+        self.enPassantPossible = ()
+        self.enPassantPossibleLog = [self.enPassantPossible]
 
+
+class CastleRights:
+    def __init__(self, wks, wqs, bks, bqs):
+        self.wks = wks
+        self.wqs = wqs
+        self.bks = bks
+        self.bqs = bqs
 
 
 class Move():
@@ -287,13 +440,24 @@ class Move():
     filesToCols = {"a":0, "b":1, "c":2, "d":3, "e":4, "f":5, "g":6, "h":7}
     colsToFiles = {v: k for k, v in filesToCols.items()}
 
-    def __init__(self, startSq, endSq, board):
+    def __init__(self, startSq, endSq, board, isEnPassantMove=False, isCastleMove=False, promotionChoice=None):
         self.startRow = startSq[0]
         self.startCol = startSq[1]
         self.endRow = endSq[0]
         self.endCol = endSq[1]
         self.pieceMoved = board[self.startRow][self.startCol]
         self.pieceCaptured = board[self.endRow][self.endCol]
+
+        # Jugadas especiales
+        self.isEnPassantMove = isEnPassantMove
+        if self.isEnPassantMove:
+            self.pieceCaptured = 'bP' if self.pieceMoved[0] == 'w' else 'wP'
+
+        self.isCastleMove = isCastleMove
+
+        # Promoción
+        self.isPawnPromotion = (self.pieceMoved == 'wP' and self.endRow == 0) or (self.pieceMoved == 'bP' and self.endRow == 7)
+        self.promotionChoice = promotionChoice
         self.moveID = self.startRow * 1000 + self.startCol *100 + self.endRow *10 + self.endCol
 
     """
